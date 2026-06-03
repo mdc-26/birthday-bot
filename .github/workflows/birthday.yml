@@ -1,0 +1,43 @@
+name: Birthday Bot
+
+on:
+  schedule:
+    # Véspera: todo dia às 23h de Brasília (02h UTC)
+    - cron: '0 2 * * *'
+    # Parabéns: todo dia às 8h de Brasília (11h UTC)
+    - cron: '0 11 * * *'
+  workflow_dispatch: # permite rodar manualmente
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create credentials.json
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
+
+      - name: Create .env file
+        run: |
+          echo "TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}" >> .env
+          echo "TELEGRAM_CHAT_ID=${{ secrets.TELEGRAM_CHAT_ID }}" >> .env
+          echo "GOOGLE_SPREADSHEET_ID=${{ secrets.GOOGLE_SPREADSHEET_ID }}" >> .env
+          echo "SHEET_NAME=Aniversários" >> .env
+          echo "GOOGLE_CREDENTIALS_FILE=credentials.json" >> .env
+          echo "COL_NOME=0" >> .env
+          echo "COL_DATA=1" >> .env
+          echo "TIMEZONE=America/Sao_Paulo" >> .env
+          echo "HORA_PARABENS=8" >> .env
+
+      - name: Run birthday check
+        run: python bot.py auto
