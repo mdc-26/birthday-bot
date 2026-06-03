@@ -1,0 +1,235 @@
+import os
+import asyncio
+import logging
+from datetime import datetime, date, timedelta
+import pytz
+
+from telegram import Bot
+from telegram.error import TelegramError
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+import gspread
+from google.oauth2.service_account import Credentials
+from dotenv import load_dotenv
+
+# ──────────────────────────────────────────────
+# CONFIG
+# ──────────────────────────────────────────────
+load_dotenv()
+
+TELEGRAM_TOKEN   = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID          = os.getenv("TELEGRAM_CHAT_ID")
+SPREADSHEET_ID   = os.getenv("GOOGLE_SPREADSHEET_ID")
+SHEET_NAME       = os.getenv("SHEET_NAME", "Aniversários")
+TIMEZONE         = os.getenv("TIMEZONE", "America/Sao_Paulo")
+CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
+
+# Colunas da planilha (índice base 0)
+COL_NOME = int(os.getenv("COL_NOME", 0))   # Coluna A = nome
+COL_DATA = int(os.getenv("COL_DATA", 1))   # Coluna B = data (DD/MM ou DD/MM/AAAA)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("bot.log", encoding="utf-8"),
+        logging.StreamHandler()
+    ]
+)
+log = logging.getLogger(__name__)
+
+# ──────────────────────────────────────────────
+# MENSAGENS — PERSONALIZE AQUI 🎉
+# ──────────────────────────────────────────────
+
+def mensagem_lembrete(nome: str) -> str:
+    """Enviada às 23h do dia ANTERIOR ao aniversário."""
+    return (
+        f"🔔 *Lembrete de aniversário!*\n\n"
+        f"Amanhã é aniversário de *{nome}*! 🎂\n"
+        f"Não esquece de mandar aquela mensagem especial! 😄"
+    )
+
+def mensagem_aniversario(nome: str) -> str:
+    """Enviada no DIA DO aniversário. Personalize à vontade!"""
+    return (
+        f"🎉🎂 *FELIZ ANIVERSÁRIO, {nome.upper()}!* 🎂🎉\n\n"
+        f"Que este novo ciclo seja repleto de alegrias, saúde e realizações!\n"
+        f"Muitos anos de vida! 🥳✨"
+    )
+
+# ──────────────────────────────────────────────
+# GOOGLE SHEETS
+# ──────────────────────────────────────────────
+
+def get_sheet():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets.readonly",
+        "https://www.googleapis.com/auth/drive.readonly",
+    ]
+    creds  = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
+    client = gspread.authorize(creds)
+    return client.open_by_key(SPREADSHEET_ID).worksheet(SHEET_NAME)
+
+
+def parse_date(raw: str) -> date | None:
+    """Aceita DD/MM ou DD/MM/AAAA."""
+    raw = raw.strip()
+    for fmt in ("%d/%m/%Y", "%d/%m/%y", "%d/%m"):
+        try:
+            d = datetime.strptime(raw, fmt).date()
+            # Se não tem ano (formato DD/MM), usa ano atual
+            if fmt == "%d/%m":
+                d = d.replace(year=date.today().year)
+            return d
+        except ValueError:
+            continue
+    return None
+
+
+def get_birthdays(target_date: date) -> list[str]:
+    """Retorna lista de nomes cujo aniversário é em target_date (ignora o ano)."""
+    try:
+        sheet = get_sheet()
+        rows  = sheet.get_all_values()
+    except Exception as e:
+        log.error(f"Erro ao acessar planilha: {e}")
+        return []
+
+    names = []
+    for i, row in enumerate(rows):
+        if i == 0 and row[COL_DATA].strip().lower() in ("data", "aniversário", "birthday"):
+            continue  # pula cabeçalho
+        if len(row) <= max(COL_NOME, COL_DATA):
+            continue
+
+        nome = row[COL_NOME].strip()
+        raw  = row[COL_DATA].strip()
+        if not nome or not raw:
+            continue
+
+        bday = parse_date(raw)
+        if bday and bday.day == target_date.day and bday.month == target_date.month:
+            names.append(nome)
+
+    return names
+
+# ──────────────────────────────────────────────
+# ENVIO DE MENSAGENS
+# ──────────────────────────────────────────────
+
+async def send_message(bot: Bot, text: str):
+    try:
+        await bot.send_message(
+            chat_id=CHAT_ID,
+            text=text,
+            parse_mode="Markdown"
+        )
+        log.info(f"Mensagem enviada: {text[:60]}...")
+    except TelegramError as e:
+        log.error(f"Erro ao enviar mensagem: {e}")
+
+# ──────────────────────────────────────────────
+# JOBS AGENDADOS
+# ──────────────────────────────────────────────
+
+async def job_lembrete_vespera(bot: Bot):
+    """23h: avisa sobre aniversários de AMANHÃ."""
+    tz       = pytz.timezone(TIMEZONE)
+    amanha   = datetime.now(tz).date() + timedelta(days=1)
+    log.info(f"[Véspera] Verificando aniversários para {amanha}")
+
+    nomes = get_birthdays(amanha)
+    if not nomes:
+        log.info("[Véspera] Nenhum aniversário amanhã.")
+        return
+
+    for nome in nomes:
+        await send_message(bot, mensagem_lembrete(nome))
+
+
+async def job_parabens_dia(bot: Bot):
+    """Hora configurada: manda parabéns para quem faz aniversário HOJE."""
+    tz    = pytz.timezone(TIMEZONE)
+    hoje  = datetime.now(tz).date()
+    log.info(f"[Hoje] Verificando aniversários para {hoje}")
+
+    nomes = get_birthdays(hoje)
+    if not nomes:
+        log.info("[Hoje] Nenhum aniversário hoje.")
+        return
+
+    for nome in nomes:
+        await send_message(bot, mensagem_aniversario(nome))
+
+# ──────────────────────────────────────────────
+# MAIN
+# ──────────────────────────────────────────────
+
+async def main():
+    log.info("🤖 Bot de aniversários iniciando...")
+
+    bot = Bot(token=TELEGRAM_TOKEN)
+    me  = await bot.get_me()
+    log.info(f"Conectado como @{me.username}")
+
+    scheduler = AsyncIOScheduler(timezone=TIMEZONE)
+
+    # ── Véspera: todo dia às 23:00 ──
+    scheduler.add_job(
+        job_lembrete_vespera,
+        trigger=CronTrigger(hour=23, minute=0, timezone=TIMEZONE),
+        args=[bot],
+        id="lembrete_vespera",
+        name="Lembrete véspera 23h",
+        replace_existing=True,
+    )
+
+    # ── Dia do aniversário: todo dia às 08:00 (ajuste no .env) ──
+    hora_parabens = int(os.getenv("HORA_PARABENS", 8))
+    scheduler.add_job(
+        job_parabens_dia,
+        trigger=CronTrigger(hour=hora_parabens, minute=0, timezone=TIMEZONE),
+        args=[bot],
+        id="parabens_dia",
+        name=f"Parabéns dia {hora_parabens}h",
+        replace_existing=True,
+    )
+
+    scheduler.start()
+    log.info(f"✅ Agendador ativo. Véspera: 23h | Parabéns: {hora_parabens}h | Fuso: {TIMEZONE}")
+
+    # Mantém rodando
+    try:
+        while True:
+            await asyncio.sleep(60)
+    except (KeyboardInterrupt, SystemExit):
+        log.info("Bot encerrado.")
+        scheduler.shutdown()
+
+
+if __name__ == "__main__":
+    import sys
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "teste":
+        asyncio.run(teste())
+    elif cmd == "auto":
+        asyncio.run(auto())
+    else:
+        asyncio.run(main())
+
+async def teste():
+    bot = Bot(token=TELEGRAM_TOKEN)
+    log.info("🧪 Modo de teste...")
+    await job_lembrete_vespera(bot)
+    await job_parabens_dia(bot)
+
+async def auto():
+    tz   = pytz.timezone(TIMEZONE)
+    hora = datetime.now(tz).hour
+    bot  = Bot(token=TELEGRAM_TOKEN)
+    log.info(f"⚙️ Modo automático — hora atual: {hora}h")
+    if hora >= 22 or hora < 2:
+        await job_lembrete_vespera(bot)
+    else:
+        await job_parabens_dia(bot)
