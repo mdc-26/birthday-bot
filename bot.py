@@ -3,6 +3,7 @@ import asyncio
 import logging
 from datetime import datetime, date, timedelta
 import pytz
+import re
 
 from telegram import Bot
 from telegram.error import TelegramError
@@ -24,35 +25,70 @@ SHEET_NAME       = os.getenv("SHEET_NAME", "Aniversários")
 TIMEZONE         = os.getenv("TIMEZONE", "America/Sao_Paulo")
 CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
 
-COL_NOME = int(os.getenv("COL_NOME", 0))
-COL_DATA = int(os.getenv("COL_DATA", 1))
+COL_NOME = int(os.getenv("COL_NOME", 0))   # Coluna A
+COL_DATA = int(os.getenv("COL_DATA", 1))   # Coluna B
+COL_SEXO = int(os.getenv("COL_SEXO", 2))   # Coluna C
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler()
-    ]
+    handlers=[logging.StreamHandler()]
 )
 log = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────
-# MENSAGENS — PERSONALIZE AQUI 🎉
+# MENSAGENS
 # ──────────────────────────────────────────────
 
 def mensagem_lembrete(nome: str) -> str:
+    """Enviada às 23h do dia ANTERIOR ao aniversário."""
     return (
-        f"🔔 *Lembrete de aniversário!*\n\n"
-        f"Amanhã é aniversário de *{nome}*! 🎂\n"
-        f"Não esquece de mandar aquela mensagem especial! 😄"
+        f"🔔 Lembrete de aniversário!\n\n"
+        f"Amanhã é aniversário de *{nome.upper()}*! 🎂🎉"
     )
 
-def mensagem_aniversario(nome: str) -> str:
-    return (
-        f"🎉🎂 *FELIZ ANIVERSÁRIO, {nome.upper()}!* 🎂🎉\n\n"
-        f"Que este novo ciclo seja repleto de alegrias, saúde e realizações!\n"
-        f"Muitos anos de vida! 🥳✨"
-    )
+def mensagem_aniversario(aniversariantes: list[dict]) -> str:
+    """
+    Recebe lista de dicts: [{'nome': 'João', 'sexo': 'M'}, ...]
+    Retorna a mensagem correta conforme quantidade e sexo.
+    """
+    nomes = [p['nome'] for p in aniversariantes]
+
+    # Dois ou mais aniversariantes
+    if len(aniversariantes) >= 2:
+        nomes_fmt = " e ".join([f"*{n.upper()}*" for n in nomes])
+        return (
+            f"🕊️ Paz do Senhor!\n\n"
+            f"Hoje, celebramos o aniversário dos Ir. {nomes_fmt}. "
+            f"Louvamos a Deus por suas vidas e por tudo o que Ele tem feito.\n\n"
+            f"Parabéns, irmãos! Que o Senhor lhes conceda saúde, paz e forças para prosseguirem, "
+            f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
+            f"Felicidades e bênçãos sem medida! 🙏✨"
+        )
+
+    # Um aniversariante
+    pessoa = aniversariantes[0]
+    nome   = pessoa['nome']
+    sexo   = pessoa.get('sexo', 'M').strip().upper()
+
+    if sexo == 'F':
+        return (
+            f"🕊️ Paz do Senhor!\n\n"
+            f"Hoje, celebramos o aniversário da Ir. *{nome.upper()}*. "
+            f"Louvamos a Deus por sua vida e por tudo que Ele tem feito.\n\n"
+            f"Parabéns, irmã! Que o Senhor lhe conceda saúde, paz e forças para prosseguir, "
+            f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
+            f"Felicidades e bênçãos sem medida! 🙏✨"
+        )
+    else:
+        return (
+            f"🕊️ Paz do Senhor!\n\n"
+            f"Hoje, celebramos o aniversário do Ir. *{nome.upper()}*. "
+            f"Louvamos a Deus por sua vida e por tudo que Ele tem feito.\n\n"
+            f"Parabéns, irmão! Que o Senhor lhe conceda saúde, paz e forças para prosseguir, "
+            f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
+            f"Felicidades e bênçãos sem medida! 🙏✨"
+        )
 
 # ──────────────────────────────────────────────
 # GOOGLE SHEETS
@@ -75,7 +111,6 @@ def parse_date(raw: str) -> date | None:
         "mai": 5, "jun": 6, "jul": 7, "ago": 8,
         "set": 9, "out": 10, "nov": 11, "dez": 12
     }
-    import re
     m = re.match(r"(\d{1,2})/([a-zç]+)\.?", raw)
     if m:
         dia = int(m.group(1))
@@ -94,7 +129,8 @@ def parse_date(raw: str) -> date | None:
     return None
 
 
-def get_birthdays(target_date: date) -> list[str]:
+def get_birthdays(target_date: date) -> list[dict]:
+    """Retorna lista de dicts {'nome', 'sexo'} para quem faz aniversário em target_date."""
     try:
         sheet = get_sheet()
         rows  = sheet.get_all_values()
@@ -102,29 +138,30 @@ def get_birthdays(target_date: date) -> list[str]:
         log.error(f"Erro ao acessar planilha: {e}")
         return []
 
-    names = []
+    pessoas = []
     for i, row in enumerate(rows):
-        if i == 0 and row[COL_DATA].strip().lower() in ("data", "aniversário", "birthday"):
+        if i == 0 and row[COL_DATA].strip().lower() in ("data", "aniversário", "birthday", "(data)"):
             continue
         if len(row) <= max(COL_NOME, COL_DATA):
             continue
         nome = row[COL_NOME].strip()
         raw  = row[COL_DATA].strip()
+        sexo = row[COL_SEXO].strip().upper() if len(row) > COL_SEXO else "M"
         if not nome or not raw:
             continue
         bday = parse_date(raw)
         if bday and bday.day == target_date.day and bday.month == target_date.month:
-            names.append(nome)
-    return names
+            pessoas.append({'nome': nome, 'sexo': sexo})
+    return pessoas
 
 # ──────────────────────────────────────────────
-# ENVIO DE MENSAGENS
+# ENVIO
 # ──────────────────────────────────────────────
 
 async def send_message(bot: Bot, text: str):
     try:
         await bot.send_message(chat_id=CHAT_ID, text=text, parse_mode="Markdown")
-        log.info(f"Mensagem enviada: {text[:60]}...")
+        log.info(f"Mensagem enviada: {text[:80]}...")
     except TelegramError as e:
         log.error(f"Erro ao enviar mensagem: {e}")
 
@@ -136,24 +173,23 @@ async def job_lembrete_vespera(bot: Bot):
     tz     = pytz.timezone(TIMEZONE)
     amanha = datetime.now(tz).date() + timedelta(days=1)
     log.info(f"[Véspera] Verificando aniversários para {amanha}")
-    nomes = get_birthdays(amanha)
-    if not nomes:
+    pessoas = get_birthdays(amanha)
+    if not pessoas:
         log.info("[Véspera] Nenhum aniversário amanhã.")
         return
-    for nome in nomes:
-        await send_message(bot, mensagem_lembrete(nome))
+    for p in pessoas:
+        await send_message(bot, mensagem_lembrete(p['nome']))
 
 
 async def job_parabens_dia(bot: Bot):
     tz   = pytz.timezone(TIMEZONE)
     hoje = datetime.now(tz).date()
     log.info(f"[Hoje] Verificando aniversários para {hoje}")
-    nomes = get_birthdays(hoje)
-    if not nomes:
+    pessoas = get_birthdays(hoje)
+    if not pessoas:
         log.info("[Hoje] Nenhum aniversário hoje.")
         return
-    for nome in nomes:
-        await send_message(bot, mensagem_aniversario(nome))
+    await send_message(bot, mensagem_aniversario(pessoas))
 
 # ──────────────────────────────────────────────
 # MODOS DE EXECUÇÃO
