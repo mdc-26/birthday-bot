@@ -25,9 +25,9 @@ SHEET_NAME       = os.getenv("SHEET_NAME", "Aniversários")
 TIMEZONE         = os.getenv("TIMEZONE", "America/Sao_Paulo")
 CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
 
-COL_NOME = int(os.getenv("COL_NOME", 0))   # Coluna A
-COL_DATA = int(os.getenv("COL_DATA", 1))   # Coluna B
-COL_SEXO = int(os.getenv("COL_SEXO", 2))   # Coluna C
+COL_NOME = int(os.getenv("COL_NOME", 0))
+COL_DATA = int(os.getenv("COL_DATA", 1))
+COL_SEXO = int(os.getenv("COL_SEXO", 2))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,47 +47,63 @@ def mensagem_lembrete(nome: str) -> str:
         f"Amanhã é aniversário de *{nome.upper()}*! 🎂🎉"
     )
 
+
 def mensagem_aniversario(aniversariantes: list[dict]) -> str:
     """
     Recebe lista de dicts: [{'nome': 'João', 'sexo': 'M'}, ...]
+    Ordena: masculinos primeiro, depois femininos.
     Retorna a mensagem correta conforme quantidade e sexo.
     """
-    nomes = [p['nome'] for p in aniversariantes]
+    # Ordenar: M primeiro, F depois
+    ordenados = sorted(aniversariantes, key=lambda p: (0 if p.get('sexo','M').upper() == 'M' else 1))
 
-    # Dois ou mais aniversariantes
-    if len(aniversariantes) >= 2:
-        nomes_fmt = " e ".join([f"*{n.upper()}*" for n in nomes])
+    # ── Um aniversariante ──
+    if len(ordenados) == 1:
+        pessoa = ordenados[0]
+        nome   = pessoa['nome']
+        sexo   = pessoa.get('sexo', 'M').strip().upper()
+
+        if sexo == 'F':
+            return (
+                f"Paz do Senhor!\n\n"
+                f"Hoje, celebramos o aniversário da Ir. *{nome.upper()}*. "
+                f"Louvamos a Deus por sua vida e por tudo que Ele tem feito.\n\n"
+                f"Parabéns, irmã! Que o Senhor lhe conceda saúde, paz e forças para prosseguir, "
+                f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
+                f"Felicidades e bênçãos sem medida!"
+            )
+        else:
+            return (
+                f"Paz do Senhor!\n\n"
+                f"Hoje, celebramos o aniversário do Ir. *{nome.upper()}*. "
+                f"Louvamos a Deus por sua vida e por tudo que Ele tem feito.\n\n"
+                f"Parabéns, irmão! Que o Senhor lhe conceda saúde, paz e forças para prosseguir, "
+                f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
+                f"Felicidades e bênçãos sem medida!"
+            )
+
+    # ── Dois ou mais aniversariantes ──
+    nomes_fmt  = " e ".join([f"*{p['nome'].upper()}*" for p in ordenados])
+    sexos      = [p.get('sexo', 'M').strip().upper() for p in ordenados]
+    todas_fem  = all(s == 'F' for s in sexos)
+
+    if todas_fem:
         return (
-            f"🕊️ Paz do Senhor!\n\n"
+            f"Paz do Senhor!\n\n"
+            f"Hoje, celebramos o aniversário das Ir. {nomes_fmt}. "
+            f"Louvamos a Deus por suas vidas e por tudo o que Ele tem feito.\n\n"
+            f"Parabéns, irmãs! Que o Senhor lhes conceda saúde, paz e forças para prosseguirem, "
+            f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
+            f"Felicidades e bênçãos sem medida!"
+        )
+    else:
+        return (
+            f"Paz do Senhor!\n\n"
             f"Hoje, celebramos o aniversário dos Ir. {nomes_fmt}. "
             f"Louvamos a Deus por suas vidas e por tudo o que Ele tem feito.\n\n"
             f"Parabéns, irmãos! Que o Senhor lhes conceda saúde, paz e forças para prosseguirem, "
             f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
-            f"Felicidades e bênçãos sem medida! 🙏✨"
-        )
-
-    # Um aniversariante
-    pessoa = aniversariantes[0]
-    nome   = pessoa['nome']
-    sexo   = pessoa.get('sexo', 'M').strip().upper()
-
-    if sexo == 'F':
-        return (
-            f"🕊️ Paz do Senhor!\n\n"
-            f"Hoje, celebramos o aniversário da Ir. *{nome.upper()}*. "
-            f"Louvamos a Deus por sua vida e por tudo que Ele tem feito.\n\n"
-            f"Parabéns, irmã! Que o Senhor lhe conceda saúde, paz e forças para prosseguir, "
-            f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
-            f"Felicidades e bênçãos sem medida! 🙏✨"
-        )
-    else:
-        return (
-            f"🕊️ Paz do Senhor!\n\n"
-            f"Hoje, celebramos o aniversário do Ir. *{nome.upper()}*. "
-            f"Louvamos a Deus por sua vida e por tudo que Ele tem feito.\n\n"
-            f"Parabéns, irmão! Que o Senhor lhe conceda saúde, paz e forças para prosseguir, "
-            f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
-            f"Felicidades e bênçãos sem medida! 🙏✨"
+            f"Felicidades e bênçãos sem medida!"
         )
 
 # ──────────────────────────────────────────────
@@ -130,7 +146,6 @@ def parse_date(raw: str) -> date | None:
 
 
 def get_birthdays(target_date: date) -> list[dict]:
-    """Retorna lista de dicts {'nome', 'sexo'} para quem faz aniversário em target_date."""
     try:
         sheet = get_sheet()
         rows  = sheet.get_all_values()
