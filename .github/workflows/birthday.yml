@@ -4,9 +4,19 @@ on:
   schedule:
     # Véspera: todo dia às 23h de Brasília (02h UTC)
     - cron: '0 2 * * *'
-    # Parabéns: todo dia às 8h de Brasília (11h UTC)
-    - cron: '0 11 * * *'
-  workflow_dispatch: # permite rodar manualmente
+    # Parabéns: todo dia às 7h30 de Brasília (10h30 UTC)
+    - cron: '30 10 * * *'
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: 'Modo de execução'
+        required: false
+        default: 'teste'
+        type: choice
+        options:
+          - teste
+          - vespera
+          - parabens
 
 jobs:
   run-bot:
@@ -36,8 +46,16 @@ jobs:
           echo "GOOGLE_CREDENTIALS_FILE=credentials.json" >> .env
           echo "COL_NOME=0" >> .env
           echo "COL_DATA=1" >> .env
+          echo "COL_SEXO=2" >> .env
           echo "TIMEZONE=America/Sao_Paulo" >> .env
           echo "HORA_PARABENS=8" >> .env
 
       - name: Run birthday check
-        run: python bot.py auto
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python bot.py ${{ github.event.inputs.modo }}
+          elif [ "${{ github.event.schedule }}" = "0 2 * * *" ]; then
+            python bot.py vespera
+          else
+            python bot.py parabens
+          fi
