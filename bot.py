@@ -44,7 +44,7 @@ def mensagem_lembrete(nome: str) -> str:
     """Enviada às 23h do dia ANTERIOR ao aniversário."""
     return (
         f"🔔 Lembrete de aniversário!\n\n"
-        f"Amanhã é aniversário de *{nome.upper()}*! 🎂🎉"
+        f"Amanhã é aniversário de *{nome.upper()}*!"
     )
 
 
@@ -90,7 +90,7 @@ def mensagem_aniversario(aniversariantes: list[dict]) -> str:
     if todas_fem:
         return (
             f"Paz do Senhor!\n\n"
-            f"Hoje, celebramos o aniversário das Ir. {nomes_fmt}. "
+            f"Hoje, celebramos os aniversários das Ir. {nomes_fmt}. "
             f"Louvamos a Deus por suas vidas e por tudo o que Ele tem feito.\n\n"
             f"Parabéns, irmãs! Que o Senhor lhes conceda saúde, paz e forças para prosseguirem, "
             f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
@@ -99,7 +99,7 @@ def mensagem_aniversario(aniversariantes: list[dict]) -> str:
     else:
         return (
             f"Paz do Senhor!\n\n"
-            f"Hoje, celebramos o aniversário dos Ir. {nomes_fmt}. "
+            f"Hoje, celebramos os aniversários dos Ir. {nomes_fmt}. "
             f"Louvamos a Deus por suas vidas e por tudo o que Ele tem feito.\n\n"
             f"Parabéns, irmãos! Que o Senhor lhes conceda saúde, paz e forças para prosseguirem, "
             f"e que seus pensamentos e caminhos estejam sempre alinhados à vontade de Deus.\n\n"
