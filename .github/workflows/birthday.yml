@@ -1,11 +1,6 @@
 name: Birthday Bot
 
 on:
-  schedule:
-    # Véspera: todo dia às 23h de Brasília (02h UTC)
-    - cron: '0 2 * * *'
-    # Parabéns: todo dia às 7h30 de Brasília (10h30 UTC)
-    - cron: '30 10 * * *'
   workflow_dispatch:
     inputs:
       modo:
@@ -21,22 +16,17 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install dependencies
         run: pip install -r requirements.txt
-
       - name: Create credentials.json
         run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > credentials.json
-
       - name: Create .env file
         run: |
           echo "TELEGRAM_TOKEN=${{ secrets.TELEGRAM_TOKEN }}" >> .env
@@ -49,13 +39,5 @@ jobs:
           echo "COL_SEXO=2" >> .env
           echo "TIMEZONE=America/Sao_Paulo" >> .env
           echo "HORA_PARABENS=8" >> .env
-
       - name: Run birthday check
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            python bot.py ${{ github.event.inputs.modo }}
-          elif [ "${{ github.event.schedule }}" = "0 2 * * *" ]; then
-            python bot.py vespera
-          else
-            python bot.py parabens
-          fi
+        run: python bot.py ${{ github.event.inputs.modo }}
